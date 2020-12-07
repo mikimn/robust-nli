@@ -38,12 +38,12 @@ class BertDebiasForSequenceClassification(BertPreTrainedModel):
     """
 
     def __init__(self, config):
-        super(BertDebiasForSequenceClassification, self).__init__(config)
+        super().__init__(config)
         self.num_labels = config.num_labels
         self.bert = BertModel(config)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.classifier = nn.Linear(config.hidden_size, self.config.num_labels)
-        self.apply(self.init_weights)
+        # self.apply(BertPreTrainedModel.init_weights)
         self.config = config
         self.hypothesis_only = self.get_bool_value(config, "hypothesis_only")
         self.gamma_focal = config.gamma_focal if hasattr(config, "gamma_focal") else 2
