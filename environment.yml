@@ -1,0 +1,26 @@
+name: probing
+channels:
+  - pytorch
+  - defaults
+  - conda-forge
+dependencies:
+  - python=3.7.4
+  - pytorch=1.6.0
+  - pillow
+  - ipython>=7.9
+  - numpy
+  - scikit-learn
+  - jupyterlab
+  - matplotlib
+  - jupyter
+  - pandas
+  - cython
+  - pytest
+  - tqdm
+  - ipympl
+  - pip
+  - pip:
+    - jsonlines==1.2.0
+    - transformers==3.1.0
+
+
