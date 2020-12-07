@@ -2,12 +2,12 @@ import torch
 from torch import nn
 import sys
 sys.path.append("../")
-
 from torch.nn import CrossEntropyLoss, MSELoss
-from pytorch_transformers.modeling_bert import BertPreTrainedModel, BertModel
+from transformers.modeling_bert import BertPreTrainedModel, BertModel
 from losses import FocalLoss, POELoss, RUBILoss
 from utils_glue import get_word_similarity_new, get_length_features
 from mutils import grad_mul_const
+
 
 class BertDebiasForSequenceClassification(BertPreTrainedModel):
     r"""
@@ -36,6 +36,7 @@ class BertDebiasForSequenceClassification(BertPreTrainedModel):
         outputs = model(input_ids, labels=labels)
         loss, logits = outputs[:2]
     """
+
     def __init__(self, config):
         super(BertDebiasForSequenceClassification, self).__init__(config)
         self.num_labels = config.num_labels
@@ -57,7 +58,7 @@ class BertDebiasForSequenceClassification(BertPreTrainedModel):
         self.focal_loss = self.get_bool_value(config, 'focal_loss')
         self.length_features = self.get_list_value(config, "length_features")
         self.hans_only = self.get_bool_value(config, 'hans_only')
-        self.aggregate_ensemble=self.get_str_value(config, 'aggregate_ensemble')
+        self.aggregate_ensemble = self.get_str_value(config, 'aggregate_ensemble')
         self.poe_loss = self.get_bool_value(config, 'poe_loss')
         self.weighted_bias_only = self.get_bool_value(config, "weighted_bias_only")
 
@@ -65,7 +66,7 @@ class BertDebiasForSequenceClassification(BertPreTrainedModel):
         if self.rubi or self.hypothesis_only or self.focal_loss or self.poe_loss or self.hans_only:
             if self.hans:
                 num_features = 4 + len(self.similarity)
-                
+
                 if self.hans_features:
                     num_features += len(self.length_features)
 
@@ -73,15 +74,15 @@ class BertDebiasForSequenceClassification(BertPreTrainedModel):
                     self.h_classifier1 = nn.Linear(num_features, num_labels_bias_only)
                 else:
                     self.h_classifier1 = nn.Sequential(
-	                    nn.Linear(num_features, num_features),
-	                    nn.Tanh(),
-	                    nn.Linear(num_features, num_features),
-	                    nn.Tanh(),
-	                    nn.Linear(num_features, num_labels_bias_only))
+                        nn.Linear(num_features, num_features),
+                        nn.Tanh(),
+                        nn.Linear(num_features, num_features),
+                        nn.Tanh(),
+                        nn.Linear(num_features, num_labels_bias_only))
 
                 if self.ensemble_training:
                     self.h_classifier1_second = self.get_classifier(config, config.nonlinear_h_classifier,
-                                                             num_labels_bias_only)
+                                                                    num_labels_bias_only)
             else:
                 # Loads the classifiers from the pretrained model.
                 self.h_classifier1 = self.get_classifier(config, config.nonlinear_h_classifier, num_labels_bias_only)
@@ -89,10 +90,10 @@ class BertDebiasForSequenceClassification(BertPreTrainedModel):
             self.lambda_h = config.lambda_h
 
     def get_bool_value(self, config, attribute):
-         return True  if hasattr(config, attribute) and eval('config.'+attribute) else False
+        return True if hasattr(config, attribute) and eval('config.' + attribute) else False
 
     def get_str_value(self, config, attribute):
-         return eval('config.'+attribute) if hasattr(config, attribute)  else ""
+        return eval('config.' + attribute) if hasattr(config, attribute) else ""
 
     def get_list_value(self, config, attribute):
         return eval('config.' + attribute) if hasattr(config, attribute) else []
@@ -100,14 +101,14 @@ class BertDebiasForSequenceClassification(BertPreTrainedModel):
     def get_classifier(self, config, nonlinear, num_labels):
         if nonlinear == "deep":
             classifier = nn.Sequential(
-	        nn.Linear(config.hidden_size, config.hidden_size),
-	        nn.Tanh(),
-	        nn.Linear(config.hidden_size, int(config.hidden_size/2)),
-	        nn.Tanh(),
-	        nn.Linear(int(config.hidden_size/2), int(config.hidden_size/4)), 
+                nn.Linear(config.hidden_size, config.hidden_size),
                 nn.Tanh(),
-                nn.Linear(int(config.hidden_size/4), num_labels),
-	        )
+                nn.Linear(config.hidden_size, int(config.hidden_size / 2)),
+                nn.Tanh(),
+                nn.Linear(int(config.hidden_size / 2), int(config.hidden_size / 4)),
+                nn.Tanh(),
+                nn.Linear(int(config.hidden_size / 4), num_labels),
+            )
         else:
             classifier = nn.Linear(config.hidden_size, num_labels)
         return classifier
@@ -120,10 +121,10 @@ class BertDebiasForSequenceClassification(BertPreTrainedModel):
 
     def set_rubi(self, rubi):
         self.rubi = rubi
-    
+
     def set_poe_loss(self, poe_loss):
         self.poe_loss = poe_loss
- 
+
     def set_focal_loss(self, focal_loss):
         self.focal_loss = focal_loss
 
@@ -137,19 +138,18 @@ class BertDebiasForSequenceClassification(BertPreTrainedModel):
             pooled_h = outputs[1]
             pooled_h_g = self.dropout(pooled_h)
             logits = self.h_classifier1(pooled_h_g)
-            outputs = (logits,) + outputs[2:] 
+            outputs = (logits,) + outputs[2:]
         elif not self.hans_only:
-            outputs = self.bert(input_ids, position_ids=position_ids,\
-                 token_type_ids=token_type_ids,\
-                 attention_mask=attention_mask, head_mask=head_mask)
+            outputs = self.bert(input_ids, position_ids=position_ids, \
+                                token_type_ids=token_type_ids, \
+                                attention_mask=attention_mask, head_mask=head_mask)
             pooled_output = outputs[1]
             pooled_output = self.dropout(pooled_output)
             logits = self.classifier(pooled_output)
             # add hidden states and attention if they are here
-            outputs = (logits,) + outputs[2:]  
+            outputs = (logits,) + outputs[2:]
 
-
-        if self.hans: # if both are correct.
+        if self.hans:  # if both are correct.
             h_outputs = self.bert(h_ids, token_type_ids=None, attention_mask=h_attention_mask)
 
             if self.ensemble_training:  # also computes the h-only results.
@@ -170,17 +170,18 @@ class BertDebiasForSequenceClassification(BertPreTrainedModel):
 
             # compute similarity features.
             if self.hans_features:
-                simialrity_score = get_word_similarity_new(h_matrix, p_matrix, self.similarity,\
-                    h_attention_mask, p_attention_mask)
+                simialrity_score = get_word_similarity_new(h_matrix, p_matrix, self.similarity, \
+                                                           h_attention_mask, p_attention_mask)
 
             # this is the default case.
-            hans_h_inputs = torch.cat((simialrity_score,\
-                    have_overlap.view(-1, 1), overlap_rate.view(-1, 1), subsequence.view(-1, 1), constituent.view(-1, 1)), 1)
-            
+            hans_h_inputs = torch.cat((simialrity_score, \
+                                       have_overlap.view(-1, 1), overlap_rate.view(-1, 1), subsequence.view(-1, 1),
+                                       constituent.view(-1, 1)), 1)
+
             if self.hans_features and len(self.length_features) != 0:
-                 length_features = get_length_features(p_attention_mask, h_attention_mask, self.length_features)
-                 hans_h_inputs = torch.cat((hans_h_inputs, length_features), 1)
-            
+                length_features = get_length_features(p_attention_mask, h_attention_mask, self.length_features)
+                hans_h_inputs = torch.cat((hans_h_inputs, length_features), 1)
+
             h_logits = self.h_classifier1(hans_h_inputs)
             h_outputs = (h_logits,) + h_outputs[2:]
 
@@ -191,12 +192,12 @@ class BertDebiasForSequenceClassification(BertPreTrainedModel):
 
 
         elif self.focal_loss or self.poe_loss or self.rubi:
-           h_outputs = self.bert(h_ids, token_type_ids=None, attention_mask=h_attention_mask)
-           pooled_h = h_outputs[1]
-           h_embd = grad_mul_const(pooled_h, 0.0)
-           pooled_h_g = self.dropout(h_embd)
-           h_logits = self.h_classifier1(pooled_h_g)
-           h_outputs = (h_logits,) + h_outputs[2:]
+            h_outputs = self.bert(h_ids, token_type_ids=None, attention_mask=h_attention_mask)
+            pooled_h = h_outputs[1]
+            h_embd = grad_mul_const(pooled_h, 0.0)
+            pooled_h_g = self.dropout(h_embd)
+            h_logits = self.h_classifier1(pooled_h_g)
+            h_outputs = (h_logits,) + h_outputs[2:]
 
         if labels is not None:
             if self.num_labels == 1:
@@ -205,28 +206,28 @@ class BertDebiasForSequenceClassification(BertPreTrainedModel):
                 loss = loss_fct(logits.view(-1), labels.view(-1))
             else:
                 if self.focal_loss:
-                   loss_fct = FocalLoss(gamma=self.gamma_focal,\
-                                        ensemble_training=self.ensemble_training,
-                                        aggregate_ensemble=self.aggregate_ensemble)
+                    loss_fct = FocalLoss(gamma=self.gamma_focal, \
+                                         ensemble_training=self.ensemble_training,
+                                         aggregate_ensemble=self.aggregate_ensemble)
                 elif self.poe_loss:
-                   loss_fct = POELoss(ensemble_training=self.ensemble_training, poe_alpha=self.poe_alpha)
-                elif self.rubi: 
-                   loss_fct = RUBILoss(num_labels=self.num_labels)
+                    loss_fct = POELoss(ensemble_training=self.ensemble_training, poe_alpha=self.poe_alpha)
+                elif self.rubi:
+                    loss_fct = RUBILoss(num_labels=self.num_labels)
                 elif self.hans_only:
                     if self.weighted_bias_only and self.hans:
                         weights = torch.tensor([0.5, 1.0, 0.5]).cuda()
                         loss_fct = CrossEntropyLoss(weight=weights)
-                else: 
-                   loss_fct = CrossEntropyLoss()
+                else:
+                    loss_fct = CrossEntropyLoss()
 
                 if self.rubi or self.focal_loss or self.poe_loss:
                     if self.ensemble_training:
                         model_loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1), \
-                                              h_logits.view(-1, self.num_labels), h_logits_second.view(-1, self.num_labels))
+                                              h_logits.view(-1, self.num_labels),
+                                              h_logits_second.view(-1, self.num_labels))
                     else:
-                        model_loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1),\
-                            h_logits.view(-1, self.num_labels))
-
+                        model_loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1), \
+                                              h_logits.view(-1, self.num_labels))
 
                     if self.weighted_bias_only and self.hans:
                         weights = torch.tensor([0.5, 1.0, 0.5]).cuda()
@@ -238,7 +239,7 @@ class BertDebiasForSequenceClassification(BertPreTrainedModel):
 
                     h_loss = h_loss_fct(h_logits.view(-1, self.num_labels), labels.view(-1))
                     if self.ensemble_training:
-                            h_loss += h_loss_fct_second(h_logits_second.view(-1, self.num_labels), labels.view(-1))
+                        h_loss += h_loss_fct_second(h_logits_second.view(-1, self.num_labels), labels.view(-1))
 
                     loss = model_loss + self.lambda_h * h_loss
                 else:
@@ -252,4 +253,3 @@ class BertDebiasForSequenceClassification(BertPreTrainedModel):
         if self.ensemble_training:
             all_outputs["h_second"] = h_outputs_second
         return all_outputs  # (loss), logits, (hidden_states), (attentions)
-
