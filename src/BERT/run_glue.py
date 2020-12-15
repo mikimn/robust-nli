@@ -5,31 +5,20 @@ from __future__ import absolute_import, division, print_function
 import logging
 import os
 import random
-from utils_glue import GLUE_TASKS_NUM_LABELS
-from eval_utils import load_and_cache_examples, evaluate, get_parser
+
 import numpy as np
 import torch
+from transformers import AdamW, get_linear_schedule_with_warmup
 from torch.utils.data import (DataLoader, RandomSampler)
 from tqdm import tqdm, trange
+
+from eval_utils import load_and_cache_examples, evaluate, get_parser
+from eval_utils import task_to_data_dir, nli_task_names, actual_task_names
 from mutils import write_to_csv
-
-from pytorch_transformers import (WEIGHTS_NAME, BertConfig, BertTokenizer, 
-                                  XLMConfig, XLMForSequenceClassification,
-                                  XLMTokenizer, XLNetConfig,
-                                  XLNetForSequenceClassification,
-                                  XLNetTokenizer)
-
-from utils_bert import BertDebiasForSequenceClassification
-from pytorch_transformers import AdamW, WarmupLinearSchedule
-
-from utils_glue import (compute_metrics, convert_examples_to_features,
-                        processors)
-from eval_utils import task_to_data_dir, nli_task_names, actual_task_names, ALL_MODELS
-
+from utils_glue import (processors)
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.CRITICAL)
-
 
 from eval_utils import MODEL_CLASSES
 from eval_utils import do_evaluate
@@ -40,6 +29,7 @@ def set_seed(args):
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
+
 
 def save_model(args, global_step, model, logger):
     output_dir = os.path.join(args.output_dir, 'checkpoint-{}'.format(global_step))
@@ -65,12 +55,15 @@ def train(args, train_dataset, model, tokenizer):
 
     # Prepare optimizer and schedule (linear warmup and decay)
     no_decay = ['bias', 'LayerNorm.weight']
-    optimizer_grouped_parameters = [
-        {'params': [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)], 'weight_decay': args.weight_decay},
-        {'params': [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
-        ]
-    optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate, eps=args.adam_epsilon)
-    scheduler = WarmupLinearSchedule(optimizer, warmup_steps=args.warmup_steps, t_total=t_total)
+    # optimizer_grouped_parameters = [
+    #     {'params': [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],
+    #      'weight_decay': args.weight_decay},
+    #     {'params': [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
+    # ]
+    optimizer = AdamW([p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],
+                      weight_decay=args.weight_decay, lr=args.learning_rate, eps=args.adam_epsilon)
+    scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=args.warmup_steps,
+                                                num_training_steps=t_total)
     if args.fp16:
         try:
             from apex import amp
@@ -84,7 +77,7 @@ def train(args, train_dataset, model, tokenizer):
     logger.info("  Num Epochs = %d", args.num_train_epochs)
     logger.info("  Instantaneous batch size per GPU = %d", args.per_gpu_train_batch_size)
     logger.info("  Total train batch size (w. parallel, distributed & accumulation) = %d",
-                   args.train_batch_size * args.gradient_accumulation_steps)
+                args.train_batch_size * args.gradient_accumulation_steps)
     logger.info("  Gradient Accumulation steps = %d", args.gradient_accumulation_steps)
     logger.info("  Total optimization steps = %d", t_total)
 
@@ -112,20 +105,21 @@ def train(args, train_dataset, model, tokenizer):
                           'overlap_rate': batch[9],
                           'subsequence': batch[10],
                           'constituent': batch[11]
-                }
+                          }
             elif args.rubi or args.hypothesis_only or args.focal_loss or args.poe_loss:
-                inputs = {'input_ids':        batch[0],
-                          'attention_mask':   batch[1],
-                          'token_type_ids':   batch[2] if args.model_type in ['bert', 'xlnet'] else None,  # XLM don't use segment_ids
-                          'labels':           batch[3],
-                          'h_ids':            batch[4],
+                inputs = {'input_ids': batch[0],
+                          'attention_mask': batch[1],
+                          'token_type_ids': batch[2] if args.model_type in ['bert', 'xlnet'] else None,
+                          # XLM don't use segment_ids
+                          'labels': batch[3],
+                          'h_ids': batch[4],
                           'h_attention_mask': batch[5]}
             else:
-                inputs = {'input_ids':      batch[0],
+                inputs = {'input_ids': batch[0],
                           'attention_mask': batch[1],
-                          'token_type_ids': batch[2] if args.model_type in ['bert', 'xlnet'] else None,  # XLM don't use segment_ids
-                          'labels':         batch[3]}
-
+                          'token_type_ids': batch[2] if args.model_type in ['bert', 'xlnet'] else None,
+                          # XLM don't use segment_ids
+                          'labels': batch[3]}
 
             outputs = model(**inputs)
             loss = outputs["bert"][0]  # model outputs are always tuple in pytorch-transformers (see doc)
@@ -164,7 +158,7 @@ def train(args, train_dataset, model, tokenizer):
             train_iterator.close()
             break
 
-    #tb_writer.close()
+    # tb_writer.close()
     return global_step, tr_loss / global_step
 
 
@@ -172,17 +166,18 @@ def main():
     parser = get_parser()
     args = parser.parse_args()
 
-    if os.path.exists(args.output_dir) and os.listdir(args.output_dir) and args.do_train and not args.overwrite_output_dir:
-        raise ValueError("Output directory ({}) already exists and is not empty. Use --overwrite_output_dir to overcome.".format(args.output_dir))
-
+    if os.path.exists(args.output_dir) and os.listdir(
+            args.output_dir) and args.do_train and not args.overwrite_output_dir:
+        raise ValueError(
+            "Output directory ({}) already exists and is not empty. Use --overwrite_output_dir to overcome.".format(
+                args.output_dir))
 
     # add all variations of hans automatically
     if "HANS" in args.eval_task_names:
         hans_variations = ["HANS-const", "HANS-lex", "HANS-sub"]
         for variation in hans_variations:
             if variation not in args.eval_task_names:
-               args.eval_task_names.append(variation)
-
+                args.eval_task_names.append(variation)
 
     # Setup CUDA, GPU & distributed training
     device = torch.device("cuda")
@@ -200,11 +195,11 @@ def main():
     print(args.eval_task_names)
 
     # Setup logging
-    logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
-                        datefmt = '%m/%d/%Y %H:%M:%S',
-                        level = logging.INFO)
+    logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
+                        datefmt='%m/%d/%Y %H:%M:%S',
+                        level=logging.INFO)
     logger.warning("Process rank: %s, device: %s, n_gpu: %s, distributed training: %s, 16-bits training: %s",
-                    -1, device, 1, bool(False), args.fp16)
+                   -1, device, 1, bool(False), args.fp16)
 
     # Set seed
     set_seed(args)
@@ -213,9 +208,9 @@ def main():
     args.task_name = args.task_name.lower()
 
     if args.task_name.startswith("fever"):
-       processor = processors["fever"]()
+        processor = processors["fever"]()
     elif args.task_name in nli_task_names:
-       processor = processors["nli"](task_to_data_dir[args.task_name])
+        processor = processors["nli"](task_to_data_dir[args.task_name])
     elif args.task_name in ["mnli"]:
         processor = processors["mnli"](hans=args.hans)
     elif args.task_name.startswith("HANS"):
@@ -229,30 +224,32 @@ def main():
 
     args.model_type = args.model_type.lower()
     config_class, model_class, tokenizer_class = MODEL_CLASSES[args.model_type]
-    config = config_class.from_pretrained(args.config_name if args.config_name else args.model_name_or_path, num_labels=num_labels, finetuning_task=args.task_name)
-    tokenizer = tokenizer_class.from_pretrained(args.tokenizer_name if args.tokenizer_name else args.model_name_or_path, do_lower_case=args.do_lower_case)
+    config = config_class.from_pretrained(args.config_name if args.config_name else args.model_name_or_path,
+                                          num_labels=num_labels, finetuning_task=args.task_name)
+    tokenizer = tokenizer_class.from_pretrained(args.tokenizer_name if args.tokenizer_name else args.model_name_or_path,
+                                                do_lower_case=args.do_lower_case)
 
     # Adds rubi parameters here.
     config.rubi = args.rubi
     config.hans = args.hans
     config.nonlinear_h_classifier = args.nonlinear_h_classifier
-    config.hypothesis_only = args.hypothesis_only 
+    config.hypothesis_only = args.hypothesis_only
     config.lambda_h = args.lambda_h
     config.focal_loss = args.focal_loss
-    config.poe_loss = args.poe_loss 
+    config.poe_loss = args.poe_loss
     config.similarity = args.similarity
     config.gamma_focal = args.gamma_focal
     config.weighted_bias_only = args.weighted_bias_only
-    config.length_features = args.length_features 
-    config.hans_features=args.hans_features
+    config.length_features = args.length_features
+    config.hans_features = args.hans_features
     config.hans_only = args.hans_only
     config.ensemble_training = args.ensemble_training
     config.aggregate_ensemble = args.aggregate_ensemble
     config.poe_alpha = args.poe_alpha
 
-    model = model_class.from_pretrained(args.model_name_or_path, from_tf=bool('.ckpt' in args.model_name_or_path), config=config)
+    model = model_class.from_pretrained(args.model_name_or_path, from_tf=bool('.ckpt' in args.model_name_or_path),
+                                        config=config)
     model.to(args.device)
-
 
     logger.info("Training/evaluation parameters %s", args)
 
@@ -271,7 +268,8 @@ def main():
         logger.info("Saving model checkpoint to %s", args.output_dir)
         # Save a trained model, configuration and tokenizer using `save_pretrained()`.
         # They can then be reloaded using `from_pretrained()`
-        model_to_save = model.module if hasattr(model, 'module') else model  # Take care of distributed/parallel training
+        model_to_save = model.module if hasattr(model,
+                                                'module') else model  # Take care of distributed/parallel training
         model_to_save.save_pretrained(args.output_dir)
         tokenizer.save_pretrained(args.output_dir)
 
@@ -299,4 +297,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

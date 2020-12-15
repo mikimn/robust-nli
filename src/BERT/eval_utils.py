@@ -9,19 +9,20 @@ import os
 import glob
 import logging
 from tqdm import tqdm, trange
-from pytorch_transformers import (WEIGHTS_NAME, BertConfig, BertTokenizer,
-                                  XLMConfig, XLMForSequenceClassification,
-                                  XLMTokenizer, XLNetConfig,
-                                  XLNetForSequenceClassification,
-                                  XLNetTokenizer)
+from transformers import (WEIGHTS_NAME, BertConfig, BertTokenizer,
+                          XLMConfig, XLMForSequenceClassification,
+                          XLMTokenizer, XLNetConfig,
+                          XLNetForSequenceClassification,
+                          XLNetTokenizer, BERT_PRETRAINED_CONFIG_ARCHIVE_MAP)
 from utils_bert import BertDebiasForSequenceClassification
 MODEL_CLASSES = {
     'bert': (BertConfig, BertDebiasForSequenceClassification, BertTokenizer),
     'xlnet': (XLNetConfig, XLNetForSequenceClassification, XLNetTokenizer),
     'xlm': (XLMConfig, XLMForSequenceClassification, XLMTokenizer),
 }
-ALL_MODELS = sum((tuple(conf.pretrained_config_archive_map.keys()) for conf in (BertConfig, XLNetConfig, XLMConfig)), ())
 
+# ALL_MODELS = sum((tuple(conf.pretrained_config_archive_map.keys()) for conf in (BertConfig, XLNetConfig, XLMConfig)), ())
+ALL_MODELS = list(BERT_PRETRAINED_CONFIG_ARCHIVE_MAP.keys())
 
 
 task_to_data_dir = {
