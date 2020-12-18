@@ -43,11 +43,28 @@ bert_dir="bert-base-uncased"
 
 
 # Train the POE model.
-for seed in ${seeds[@]}; do
-    python run_glue.py --cache_dir $cache_dir --do_train --do_eval --task_name mnli \
-    --eval_task_names mnli HANS --model_type bert --num_train_epochs 3  --lambda_h 1.0 \
-    --model_name_or_path $bert_dir --output_dir $outputs_dir/bert_poeloss_seed_$seed \
-    --overwrite_output_dir --learning_rate 2e-5 --do_lower_case  --outputfile $results_dir/results.csv \
-    --poe_loss   --nonlinear_h_classifier deep --hans  --similarity mean max min \
-    --weighted_bias_only  --binerize_eval  --seed $seed --hans_features
+for seed in "${seeds[@]}"; do
+    python run_glue.py \
+    --cache_dir $cache_dir \
+    --do_train \
+    --do_eval \
+    --task_name mnli \
+    --eval_task_names mnli HANS \
+    --model_type bert \
+    --num_train_epochs 3  \
+    --lambda_h 1.0 \
+    --model_name_or_path $bert_dir \
+    --output_dir $outputs_dir/bert_poeloss_seed_"$seed" \
+    --overwrite_output_dir \
+    --learning_rate 2e-5 \
+    --do_lower_case \
+    --outputfile $results_dir/results.csv \
+    --poe_loss \
+    --nonlinear_h_classifier deep \
+    --hans \
+    --similarity mean max min \
+    --weighted_bias_only \
+    --binerize_eval \
+    --seed "$seed" \
+    --hans_features
 done
