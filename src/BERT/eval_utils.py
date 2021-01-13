@@ -149,6 +149,8 @@ def get_parser():
                         help="If > 0: set total number of training steps to perform. Override num_train_epochs.")
     parser.add_argument("--warmup_steps", default=0, type=int,
                         help="Linear warmup over warmup_steps.")
+    parser.add_argument("--hidden_dropout_prob", default=0.1, type=float,
+                        help="BertConfig hidden_dropout_prob parameter")
 
     parser.add_argument('--logging_steps', type=int, default=100000, # this was 10000  # 50
                         help="Log every X updates steps.")

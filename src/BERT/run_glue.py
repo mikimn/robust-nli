@@ -246,12 +246,14 @@ def main():
     config.ensemble_training = args.ensemble_training
     config.aggregate_ensemble = args.aggregate_ensemble
     config.poe_alpha = args.poe_alpha
+    config.hidden_dropout_prob = args.hidden_dropout_prob
 
     model = model_class.from_pretrained(args.model_name_or_path, from_tf=bool('.ckpt' in args.model_name_or_path),
                                         config=config)
     model.to(args.device)
 
     logger.info("Training/evaluation parameters %s", args)
+    print(model.dropout)  # Test dropout TODO @mikimn: Remove
 
     # Training
     if args.do_train:
