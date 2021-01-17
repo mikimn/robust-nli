@@ -7,7 +7,8 @@ mkdir -p $outputs_dir
 # Sets the paths to the downloaded BERT model and the cache dir.
 cache_dir="temp/cache_dir/"
 bert_dir="bert-base-uncased"
-dropouts=(0.2 0.3 0.4)
+# dropouts=(0.2 0.3 0.4)
+dropouts=(0.0)
 
 for dropout in "${dropouts[@]}"; do
   python run_glue.py \
